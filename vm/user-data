@@ -1,0 +1,40 @@
+#cloud-config
+hostname: casaos-vm
+manage_etc_hosts: true
+ssh_pwauth: true
+chpasswd:
+  expire: false
+  users:
+    - name: debian
+      password: $6$x8Ycuy03rCl2NT2x$NUqeHPA6TTobBEAqTQ/N3coz5EsWhHKFnY3nh0SW2TELARS0UTzbCrhXGFddFgwXIeDfv607ge/hAVgp/I6.s1
+      type: hash
+users:
+  - default
+ssh_authorized_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDHAYbVmn0OkFLsRr86y0vMSFVZ9zbvdYtz1AsXWH51H je@casaos-admin
+disk_setup:
+  /dev/vdb:
+    table_type: gpt
+    layout: true
+    overwrite: false
+fs_setup:
+  - label: data
+    filesystem: ext4
+    device: /dev/vdb
+    partition: auto
+mounts:
+  - ["LABEL=data", "/DATA", "ext4", "defaults,nofail", "0", "2"]
+package_update: true
+packages:
+  - curl
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      PasswordAuthentication yes
+      X11Forwarding no
+runcmd:
+  - sh -c 'curl -fsSL https://get.casaos.io | bash'
+  - sh -c "sed -i '/^\[gateway\]/,/^\[/{s/^[[:space:]]*port[[:space:]]*=.*/port = 48000/}' /etc/casaos/gateway.ini; grep -q '^\[gateway\]' /etc/casaos/gateway.ini || printf '[gateway]\nport = 48000\n' >> /etc/casaos/gateway.ini"
+  - sh -c 'systemctl restart casaos-gateway || systemctl restart casaos'
+  - sh -c 'mkdir -p /DATA/Media/movies /DATA/Media/tv /DATA/Media/books /DATA/Media/music /DATA/Downloads/usenet/complete /DATA/Downloads/usenet/incomplete /DATA/Downloads/torrents'
+  - sh -c 'df -h /DATA > /root/PROVISION_DONE.txt; cloud-init status --wait >> /root/PROVISION_DONE.txt 2>&1 || true'

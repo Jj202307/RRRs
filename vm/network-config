@@ -1,0 +1,14 @@
+version: 2
+ethernets:
+  main:
+    match:
+      name: "en*s*"
+    addresses:
+      - 192.168.122.50/24
+    routes:
+      - to: default
+        via: 192.168.122.1
+    nameservers:
+      addresses:
+        - 192.168.122.1
+        - 1.1.1.1
