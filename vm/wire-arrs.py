@@ -20,7 +20,7 @@ QB_USER, QB_PASS = "admin", "i7oCkokxEhAtHT8A"
 SAB_APIKEY = "350f7db486cf40e9a2693f81a94caa4e"
 ARR_CATEGORY = {"radarr": "radarr", "sonarr": "tv-sonarr", "readarr": "readarr", "lidarr": "lidarr"}
 ROOT_FOLDER = {"radarr": "/movies", "sonarr": "/tv", "readarr": "/books", "lidarr": "/music"}
-INDEXERS = ["1337x", "EZTV"]
+INDEXERS = ["YTS", "Limetorrents", "LinuxTracker", "EZTV"]
 
 def req(app, method, path, body=None):
     base, key, ver = APPS[app]
@@ -34,6 +34,12 @@ def req(app, method, path, body=None):
             return json.loads(txt) if txt.strip().startswith(("[", "{")) else txt
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"{method} {url} -> {e.code}: {e.read().decode()[:400]}")
+
+def fs_tag_id():
+    for t in req("prowlarr", "GET", "tag"):
+        if t.get("name") == "fs":
+            return t["id"]
+    return None
 
 def get_schema(app, res, implementation):
     for s in req(app, "GET", f"{res}/schema"):
@@ -70,6 +76,7 @@ def stage_prowlarr_clients():
     print("prowlarr dlclient:", upsert("prowlarr", "downloadclient", sab))
 
 def stage_indexers():
+    fs = fs_tag_id()
     for impl in INDEXERS:
         sch = None
         for s in req("prowlarr", "GET", "indexer/schema"):
@@ -77,11 +84,30 @@ def stage_indexers():
                 sch = s; break
         if not sch:
             print(f"indexer {impl}: no definition, skipped"); continue
-        sch.update({"enable": True, "name": impl, "appProfileId": 1, "priority": 25, "tags": [1]})
+        tags = [fs] if impl == "EZTV" and fs else []
+        sch.update({"enable": True, "name": impl, "appProfileId": 1, "priority": 25, "tags": tags})
         try:
             print(f"indexer {impl}:", upsert("prowlarr", "indexer", sch))
         except RuntimeError as e:
             print(f"indexer {impl}: FAILED — {str(e)[:160]}")
+
+def stage_flare_solverr():
+    # Prowlarr indexer proxy for Cloudflare-walled indexers (EZTV).
+    # Needs the flaresolverr container up on guest :8191 first
+    # (install vm/flaresolverr-compose.yaml — REBUILD.md step 9).
+    # Proxies apply by TAG match, so the "fs" tag must exist and be
+    # carried by both the proxy and any indexer that needs it.
+    tid = fs_tag_id()
+    if tid is None:
+        out = req("prowlarr", "POST", "tag", {"name": "fs"})
+        tid = out["id"]
+        print(f"created tag fs (id {tid})")
+    else:
+        print(f"tag fs exists (id {tid})")
+    sch = get_schema("prowlarr", "indexerproxy", "FlareSolverr")
+    sch = fill(sch, {"host": BRIDGE, "port": 8191, "useSsl": False})
+    sch.update({"enable": True, "name": "FlareSolverr", "tags": [tid]})
+    print("indexer proxy:", upsert("prowlarr", "indexerproxy", sch))
 
 def stage_applications():
     for app in ("radarr", "sonarr", "readarr", "lidarr"):
@@ -168,10 +194,11 @@ def stage_test():
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--stage", required=True,
-                   choices=["prowlarr-clients", "indexers", "applications", "arr-folders",
-                            "arr-clients", "arr-rpm", "sync", "verify", "test"])
+                   choices=["prowlarr-clients", "flare-solverr", "indexers", "applications",
+                            "arr-folders", "arr-clients", "arr-rpm", "sync", "verify", "test"])
     a = p.parse_args()
-    {"prowlarr-clients": stage_prowlarr_clients, "indexers": stage_indexers,
+    {"prowlarr-clients": stage_prowlarr_clients, "flare-solverr": stage_flare_solverr,
+     "indexers": stage_indexers,
      "applications": stage_applications, "arr-folders": stage_arr_folders,
      "arr-clients": stage_arr_clients, "arr-rpm": stage_arr_rpm,
      "sync": stage_sync, "verify": stage_verify, "test": stage_test}[a.stage]()
