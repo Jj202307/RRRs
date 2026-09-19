@@ -7,27 +7,33 @@
 # SABnzbd first-boot wizard completed (see REBUILD.md).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-HOST="${RRR_HOST:-192.168.1.81}"
+HOST="${RRR_HOST:-192.168.1.66}"
 CREDS=vm/credentials.txt
-PW=$(sed -n 's/^SSH password: //p' "$CREDS" | head -1)
-[ -n "$PW" ] || { echo "ERROR: no 'SSH password:' line in $CREDS" >&2; exit 1; }
-command -v sshpass >/dev/null || {
-  echo "ERROR: sshpass not installed (openSUSE: zypper install sshpass / Debian: apt install sshpass)" >&2
-  exit 1
-}
-run() {
-  sshpass -p "$PW" ssh -p 10022 -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 "debian@$HOST" "$1" 2>/dev/null
-}
-jsonkey() { run "docker exec $1 grep -o '\"ApiKey\": *\"[a-f0-9]*\"' /config/$2 | head -1 | cut -d'\"' -f4"; }
-xmlkey()  { run "docker exec $1 grep -o '<ApiKey>[^<]*</ApiKey>' /config/config.xml | head -1 | sed 's/<[^>]*>//g'"; }
 
-P=$(jsonkey prowlarr prowlarr.conf)
+# Prefer SSH key auth (ailab flow: je@aillab key is in user-data);
+# fall back to sshpass + VM password (openSUSE/P71 flow) when no key works.
+SSHOPTS=(-p 10022 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8)
+if ssh "${SSHOPTS[@]}" -o BatchMode=yes "debian@$HOST" true 2>/dev/null; then
+  run() { ssh "${SSHOPTS[@]}" "debian@$HOST" "$1" 2>/dev/null; }
+else
+  PW=$(sed -n 's/^SSH password: //p' "$CREDS" | head -1)
+  [ -n "$PW" ] || { echo "ERROR: no 'SSH password:' line in $CREDS and key auth failed" >&2; exit 1; }
+  command -v sshpass >/dev/null || {
+    echo "ERROR: key auth failed and sshpass not installed (Debian/Ubuntu: apt install sshpass)" >&2
+    exit 1
+  }
+  run() { sshpass -p "$PW" ssh "${SSHOPTS[@]}" "debian@$HOST" "$1" 2>/dev/null; }
+fi
+jsonkey() { run "sudo docker exec $1 grep -o '\"ApiKey\": *\"[a-f0-9]*\"' /config/$2 | head -1 | cut -d'\"' -f4"; }
+xmlkey()  { run "sudo docker exec $1 grep -o '<ApiKey>[^<]*</ApiKey>' /config/config.xml | head -1 | sed 's/<[^>]*>//g'"; }
+
+# All five *arr apps (hotio images) keep their key in /config/config.xml
+P=$(xmlkey prowlarr)
 R=$(xmlkey radarr)
 S=$(xmlkey sonarr)
-D=$(jsonkey readarr readarr.conf)
-L=$(jsonkey lidarr lidarr.conf)
-SAB_RAW=$(run "docker exec sabnzbd grep -E '^(api_key|nzb_key|nzb_keys)' /config/sabnzbd.ini")
+D=$(xmlkey readarr)
+L=$(xmlkey lidarr)
+SAB_RAW=$(run "sudo docker exec sabnzbd grep -E '^(api_key|nzb_key|nzb_keys)' /config/sabnzbd.ini")
 SAB_API=$(printf '%s\n' "$SAB_RAW" | sed -n 's/^api_key[ =]*//p' | head -1)
 SAB_NZB=$(printf '%s\n' "$SAB_RAW" | sed -n 's/^nzb_keys\?[ =]*//p' | head -1)
 

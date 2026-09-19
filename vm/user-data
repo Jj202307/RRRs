@@ -12,18 +12,11 @@ users:
   - default
 ssh_authorized_keys:
   - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDHAYbVmn0OkFLsRr86y0vMSFVZ9zbvdYtz1AsXWH51H je@casaos-admin
-disk_setup:
-  /dev/vdb:
-    table_type: gpt
-    layout: true
-    overwrite: false
-fs_setup:
-  - label: data
-    filesystem: ext4
-    device: /dev/vdb
-    partition: auto
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXvKcp73nOAaBAgTKWvCRkiY/KOBMLcvGVKjQl9BS9d je@ailab
+# /DATA is a virtiofs share of the host dir RRRs_DATA (see build-vm.sh) —
+# data lives outside the VM as plain host files. No disk to format.
 mounts:
-  - ["LABEL=data", "/DATA", "ext4", "defaults,nofail", "0", "2"]
+  - ["rrrs-data", "/DATA", "virtiofs", "defaults", "0", "0"]
 package_update: true
 packages:
   - curl
@@ -37,4 +30,4 @@ runcmd:
   - sh -c "sed -i '/^\[gateway\]/,/^\[/{s/^[[:space:]]*port[[:space:]]*=.*/port = 48000/}' /etc/casaos/gateway.ini; grep -q '^\[gateway\]' /etc/casaos/gateway.ini || printf '[gateway]\nport = 48000\n' >> /etc/casaos/gateway.ini"
   - sh -c 'systemctl restart casaos-gateway || systemctl restart casaos'
   - sh -c 'mkdir -p /DATA/Media/movies /DATA/Media/tv /DATA/Media/books /DATA/Media/music /DATA/Downloads/usenet/complete /DATA/Downloads/usenet/incomplete /DATA/Downloads/torrents'
-  - sh -c 'df -h /DATA > /root/PROVISION_DONE.txt; cloud-init status --wait >> /root/PROVISION_DONE.txt 2>&1 || true'
+  - sh -c 'df -h /DATA > /root/PROVISION_DONE.txt && date >> /root/PROVISION_DONE.txt'

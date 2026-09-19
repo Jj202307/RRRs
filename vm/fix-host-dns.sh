@@ -1,9 +1,9 @@
 #!/bin/bash
 # Permanently set host DNS to 1.1.1.1 + 8.8.8.8 (bypasses ISP/router DNS).
-# Host uses NetworkManager, connection "Wired connection 1" on enp0s31f6 (DHCP kept).
+# Host uses NetworkManager, connection "Eagle6" on wlp71s0 (DHCP kept).
 # Run with sudo. Reversible: see bottom.
 set -euo pipefail
-CON="Wired connection 1"
+CON="Eagle6"
 
 nmcli con mod "$CON" ipv4.dns "1.1.1.1 8.8.8.8" ipv4.ignore-auto-dns yes
 nmcli con up "$CON"   # brief network blip while the connection re-applies

@@ -9,14 +9,11 @@ describes daily use of the finished stack.
 ## Host requirements
 
 - x86_64 Linux with KVM, plus: libvirt, qemu, `virt-install`, `mkisofs`
-  (genisoimage), `curl`, `sshpass`, `python3` (stdlib only).
-- The original host was **openSUSE Leap 16.0**. The host scripts use zypper
-  and the *modular* libvirt daemon names (`virtqemud`, `virtnetworkd` + the
-  5 companion socket daemons). On another distro, install the equivalents
-  (libvirt + qemu-kvm + virtinst + genisoimage) and make sure the QEMU
-  driver daemon, the network daemon, and the companion daemons
-  (storage/log/lock/secret/nodedev) are running; monolithic `libvirtd`
-  distros just need `libvirtd` running. The end state that matters:
+  (genisoimage), `curl`, `sshpass`, `python3` (stdlib only), `virtiofsd`
+  (the /DATA shared-folder daemon; Ubuntu package `virtiofsd`).
+- Two supported host scripts: `setup_host_Ubuntu.sh` (Ubuntu/Debian,
+  monolithic `libvirtd`, apt) and `setup_host_OpenSuseOS.sh` (original host,
+  modular daemons, zypper). The end state that matters:
   - `virsh` works for the operator user **without sudo** (user in the
     `libvirt` + `kvm` groups; scripts call `sg libvirt -c "virsh ..."`),
   - the `default` NAT network (192.168.122.1/24) is active + autostart,
@@ -28,8 +25,17 @@ describes daily use of the finished stack.
 - RAM: give the VM 8 GB / 4 vCPUs as in `vm/build-vm.sh` (or less; the stack
   idles around 1.5 GB but torrent-heavy use likes headroom).
 
-If the host IP is not `192.168.1.81`, export `RRR_HOST=<ip>` for every
-script below (install-apps.py, wire-arrs.py, collect-keys.sh).
+If the host IP is not `192.168.1.66` (current primary host `ailab`; the
+original openSUSE host was `192.168.1.81`), export `RRR_HOST=<ip>` for every
+script below (install-apps.py, wire-arrs.py, collect-keys.sh,
+get-casaos-token.sh).
+
+**Network MTU note:** the primary host's WiFi uplink has a path MTU of 1280
+(verified by DF-ping bisect). This is handled in two layers — guest NIC MTU
+1280 in `vm/network-config`, and an MSS-clamp (1240) in the port-forward
+hook. On a host with a clean 1500 path both are harmless belt-and-suspenders.
+Without them, guests behind the NAT stall forever on large packets (PMTUD
+ICMP never reaches them).
 
 ## Steps
 
@@ -44,11 +50,18 @@ Downloads the pinned build **Debian 12 bookworm 20260806-2562**
 SHA512-verifies it against `vm/SHA512SUMS` (the build's official manifest,
 filenames normalized). Idempotent.
 
-### 2. Host prep (run with sudo; openSUSE: `zypper install qemu virt-install` first)
+### 2. Host prep (run with sudo)
 
+**Ubuntu/Debian:**
 ```bash
-sudo bash vm/setup-host.sh        # packages (zypper), daemons, default net, group membership
-sudo bash vm/finish-host-setup.sh # companion sockets + port-forward hook (/etc/libvirt/hooks/qemu)
+sudo bash vm/setup_host_Ubuntu.sh        # packages, daemons, default net, group membership
+sudo bash vm/finish-host-setup.sh        # companion sockets + port-forward hook (/etc/libvirt/hooks/qemu)
+```
+
+**openSUSE Leap (original host):**
+```bash
+sudo bash vm/setup_host_OpenSuseOS.sh    # zypper install, modular libvirt daemons
+sudo bash vm/finish-host-setup.sh        # companion sockets + port-forward hook (/etc/libvirt/hooks/qemu)
 ```
 
 Log out and back in afterwards (group membership). On a non-openSUSE host
@@ -61,9 +74,13 @@ hook in step 2b is distro-agnostic.
 bash vm/build-vm.sh
 ```
 
-Creates `~/VMs/casaos/system.qcow2` (32 G overlay on the base image) and
-`data.qcow2` (200 G sparse), rebuilds `seed.iso` from the NoCloud seed files,
-launches `casaos-vm` via `virt-install`. Then poll:
+Creates `/home/je/NVMe4TB/RRRs_VM/system.qcow2` (32 G overlay on the base
+image), rebuilds `seed.iso` from the NoCloud seed files, launches
+`casaos-vm` via `virt-install`. **`/DATA` is not a disk**: it's a virtiofs
+share of `/home/je/NVMe4TB/RRRs_VM/RRRs_DATA/` on the host (plain files —
+browsable, backupable, host-app-visible while the VM runs; survives system
+rebuilds). Requires the `virtiofsd` package on the host (step 2 installs
+it). Then poll:
 
 ```bash
 bash vm/check-vm.sh    # repeat every ~30s
@@ -99,22 +116,17 @@ password in `vm/credentials.txt` (wire-arrs.py hardcodes it).
 
 ### 6. Get the CasaOS API token (replaces the stale `vm/.casaos-token`)
 
+v0.4.x has **no API-key field in the UI** — the token is issued by the login
+endpoint. Run the helper (prompts for the password, hidden; username defaults
+to `je`, override with `RRR_CASAOS_USER=<name>`):
+
 ```bash
-python3 - <<'PY'
-import json, os, re, urllib.request
-host = "192.168.1.81"  # or your RRR_HOST
-txt = open("vm/credentials.txt").read()
-pw = re.search(r"^CasaOS admin password: (.+)$", txt, re.M).group(1).strip()
-body = json.dumps({"username": "je", "password": pw}).encode()
-r = urllib.request.urlopen(urllib.request.Request(
-    f"http://{host}:18000/v1/users/login", data=body,
-    headers={"Content-Type": "application/json"}), timeout=15)
-tok = json.load(r)["access_token"]
-open("vm/.casaos-token", "w").write(tok)
-os.chmod("vm/.casaos-token", 0o600)
-print("token saved to vm/.casaos-token")
-PY
+bash vm/get-casaos-token.sh
 ```
+
+It POSTs `{"username","password"}` to `/v1/users/login` and saves
+`vm/.casaos-token` (0600). Response shape (v0.4.15): the JWT is at
+`data.token.access_token` — nested, not top-level; the helper handles it.
 
 ### 7. DNS (only if the ISP poisons torrent domains)
 
@@ -154,10 +166,17 @@ Check the `flaresolverr` container is up on guest :8191.
 ### 10. Complete the SABnzbd first-boot wizard
 
 A fresh SABnzbd answers :18080 with a 303 to the wizard and its API is
-useless until it's done. Complete it headlessly (NOTES §8d): `POST
-/wizard/one` with `lang=en`, then `POST /wizard/two` with no server — or
-just click through `http://<host>:18080`. (No usenet server in Phase A;
-that's deliberate.)
+useless until it's done. Headless: `POST /wizard/one` with `lang=en`, then
+`POST /wizard/two` with empty server fields but MUST include `ssl=0` (the
+server-side validator requires the key; omitting it silently re-renders
+the form) plus the hidden `apikey` value from the form HTML — or just click
+through `http://<host>:18080`. Three follow-ups are REQUIRED (details in
+NOTES "2026-09-20 ailab: full service"): set `wizard_complete=1` and the
+usenet complete/incomplete dirs in `/config/sabnzbd.ini` + restart, add a
+disabled placeholder `[servers]` entry (SAB 5.x keeps 303-redirecting `/`
+to the wizard while zero servers exist), and create the 5 categories via
+`set_config&section=categories` (Prowlarr validates them when saving the
+SABnzbd download client). No usenet server in Phase A; that's deliberate.
 
 ### 11. Collect the fresh API keys — REQUIRED, the committed keys are dead
 
@@ -197,23 +216,41 @@ netinst") → download icon → qBittorrent → confirm it lands in
 
 ## Not reproducible from the repo (by design)
 
-- `~/VMs/casaos/{system,data}.qcow2` — created by build-vm.sh; the data
-  disk holds all media + app configs and starts empty.
-- `~/.ssh/id_ed25519` — only the PUBLIC key is baked into `vm/user-data`
-  (original host's key). On a fresh host use the password from
-  `vm/credentials.txt`; `check-vm.sh` falls back to sshpass automatically.
+- `/home/je/NVMe4TB/RRRs_VM/system.qcow2` — created by build-vm.sh; disposable.
+  **`RRRs_DATA/` next to it is the real data** (virtiofs source for guest
+  `/DATA`): media, downloads, and app configs as plain host files. It is NOT
+  touched by rebuilds — delete it manually only if you mean it.
+- `~/.ssh/id_ed25519` — only the PUBLIC keys are baked into `vm/user-data`
+  (`je@casaos-admin` original host, `je@ailab` current host). On a fresh host
+  use the password from `vm/credentials.txt`; `check-vm.sh` falls back to
+  sshpass automatically.
 - Port-forward hook rules — reinstalled automatically on every VM start by
   the hook; removed on stop. Nothing to do.
 
 ## Gotchas index (details in NOTES-PROGRESS.md)
 
+- **Ubuntu socket-activated libvirtd runs with `--timeout 120`**: when the
+  daemon self-exits while a network is active, the next activation refuses
+  to re-adopt it and `net-start` fails EADDRINUSE against ghost dnsmasq
+  sockets. `setup_host_Ubuntu.sh` installs a drop-in override that blanks
+  `LIBVIRTD_ARGS` so the daemon stays persistent.
+- **`virsh` without `--connect qemu:///system` talks to the SESSION daemon**
+  (non-root default) — its state readings are a phantom of the real one.
+  Every script here uses the explicit URI. The session daemon may also have
+  its own phantom `default` network; setup removes it.
+- **nftables MSS-clamp syntax**: `tcp option maxseg SIZE set 1240` on
+  current nft (Ubuntu 24.04) — the old wiki form `target set` is a parse
+  error. The hook uses the current form.
 - Modular libvirt: companion daemon sockets must be up (finish-host-setup.sh).
 - qBittorrent rewrites its config from memory on SIGTERM — never edit
   `/DATA/AppData/qbittorrent/.../qBittorrent.conf` while it runs.
-- `cloud-init status` may report "running" forever (deadlock in the seed's
-  last runcmd) — cosmetic; verify the real steps directly.
+- `cloud-init status` may report "running" forever if the seed's last runcmd
+  calls `cloud-init status --wait` (circular). Current seed writes a plain
+  marker file instead (`/root/PROVISION_DONE.txt`); older seeds had the
+  deadlock.
 - 127.0.0.1:port on the host deliberately does NOT work (route_localnet
-  not enabled) — use the host's LAN IP.
+  not enabled) — use the host's LAN IP (the hook DNATs host-own-IP traffic
+  via auto-detected default-route interface).
 - `x-casaos.title` in compose must be a map (`en_us:`), a plain string 500s.
 - Prowlarr indexer proxies apply by TAG match — the `fs` tag must exist and
   be on both proxy and indexer (handled by the flare-solverr stage).

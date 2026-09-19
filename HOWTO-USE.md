@@ -59,10 +59,12 @@ a semi-private tracker (user decision).
 
 All app wiring is DONE (see NOTES-PROGRESS.md §8). What's in place:
 
-- **Prowlarr**: indexers **YTS, Limetorrents, LinuxTracker, EZTV** (EZTV via
+- **Prowlarr**: indexers **YTS, LinuxTracker, EZTV** (EZTV via
   FlareSolverr — installed as container `flaresolverr` guest :8191 and wired
   as a Prowlarr indexer proxy tagged `fs`; indexers must carry the same tag).
   1337x is Cloudflare-hard-blocked even via FlareSolverr — skip it.
+  Limetorrents dropped 2026-09: `.fun` refused connections, `.com`→`.pro`
+  redirect chain ends at a parked page — no live mirror found.
   Download clients qBittorrent + SABnzbd (both tested OK). Apps
   Radarr/Sonarr/Readarr/Lidarr synced (fullSync).
 - **Radarr/Sonarr/Readarr/Lidarr**: root folders /movies, /tv, /books,
@@ -85,21 +87,21 @@ sg libvirt -c "virsh domstate casaos-vm"
 sg libvirt -c "virsh console casaos-vm"        # Ctrl+] to exit
 
 # stop / start (port-forward rules follow automatically via the qemu hook)
-# NOT autostarted: VM stays off across host reboots until started by hand
+# VM is autostarted with the host (build-vm.sh --autostart + persistent libvirtd)
 sg libvirt -c "virsh -c qemu:///system shutdown casaos-vm"
 sg libvirt -c "virsh -c qemu:///system start casaos-vm"
 
 # into the VM over ssh (password in vm/credentials.txt, or the key ~/.ssh/id_ed25519)
-ssh -p 10022 debian@192.168.1.81
+ssh -p 10022 debian@192.168.1.66
 
 # provisioning health check
 bash vm/check-vm.sh
 ```
 
-VM does NOT autostart with the host (user preference, disabled
-2026-08-16) — start it manually: `sg libvirt -c "virsh -c qemu:///system
-start casaos-vm"` (~40s to full stack). Port-forwards re-install
-themselves on VM start. The whole stack is host-IP-agnostic (port-only
+VM autostarts with the host (build-vm.sh `--autostart`; the original host
+had it disabled as a preference — `virsh autostart --disable casaos-vm`
+restores that). ~40s to full stack. Port-forwards re-install themselves on
+VM start. The whole stack is host-IP-agnostic (port-only
 forwarding rules) — a DHCP address change breaks nothing; bookmarks should
 use `P71.local`.
 
@@ -125,9 +127,11 @@ No reinstalls needed — that's why SABnzbd is already running.
 
 ## Disk growth
 
-`/DATA` is a 200G virtual disk (`~/VMs/casaos/data.qcow2`), sparse — grows only
-as used. To enlarge later: shut VM down, `qemu-img resize +100G` the disk,
-`virsh start`, then `growpart` + `resize2fs` inside the guest (or via cloud-init).
+`/DATA` (guest) is a **virtiofs share of `/home/je/NVMe4TB/RRRs_VM/RRRs_DATA/`**
+on the host — plain files, no virtual disk. Capacity = free space on the
+NVMe volume; "resizing" is a filesystem-level concern of the host, nothing
+to do inside the VM. Back it up like any directory (rsync, borg, snapshots);
+for crash-consistent *arr databases, stop the VM or the apps first.
 
 ## Full teardown (if ever)
 

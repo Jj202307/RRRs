@@ -273,3 +273,124 @@ All details + how-to in **NEXT_STEPS_UPGRADES.md**. Summary:
 - Daemons/packages: `sudo systemctl disable --now virtqemud virtnetworkd` +
   `sudo zypper remove libvirt-daemon-qemu libvirt-daemon-driver-network libvirt-daemon-config-network`
 - Groups: `sudo gpasswd -d je libvirt && sudo gpasswd -d je kvm`
+
+## 2026-09-19/20 — Rebuild on ailab (Ubuntu 24.04, WiFi host)
+
+Full rebuild from this repo. Four environment differences bit; all fixes are
+baked into the scripts now (details in REBUILD.md gotchas):
+
+1. **libvirtd `--timeout 120` + socket activation** (Ubuntu default): daemon
+   self-exits when idle, next activation refuses to re-adopt the running
+   network → `net-start` fails EADDRINUSE against orphaned dnsmasq sockets
+   (the "ghost dnsmasq" mess; explains recurring 21:56-era orphans). Fix:
+   drop-in `/etc/systemd/system/libvirtd.service.d/override.conf` blanking
+   `LIBVIRTD_ARGS` → persistent daemon. Encoded in `setup_host_Ubuntu.sh`,
+   which also cleans ghosts + orphan virbr0 + the session-daemon phantom
+   `default` network before starting the real one.
+2. **Session-vs-system virsh**: non-root `virsh` defaults to `qemu:///session`
+   whose phantom state readings derailed diagnostics for a while. All scripts
+   now use explicit `--connect qemu:///system`.
+3. **WiFi uplink path MTU is 1280** (DF-ping bisect: 1252 payload OK, 1272
+   FAIL). Host TCP survives via its own PMTUD; guests behind NAT never get
+   the ICMP → large packets blackhole, apt stalls in infinite retries while
+   SSH/DNS/handshakes all "work". Fix (two layers, both permanent): guest NIC
+   MTU 1280 in `vm/network-config` + MSS clamp 1240 in the port-forward hook.
+4. **nft syntax drift**: MSS clamp is `tcp option maxseg SIZE set 1240` on
+   current nft (Ubuntu 24.04); the old wiki form `target set` is a parse
+   error — and the hook (no `set -e`) swallowed it silently, so the rules
+   were simply missing. Hook now wipes-then-adds (idempotent) and
+   `finish-host-setup.sh` applies rules live when the VM is already running
+   (no more destroy/start dance after hook edits).
+
+**Storage redesign — virtiofs**: `/DATA` is no longer a 200G `data.qcow2`;
+it's a virtiofs share of `/home/je/NVMe4TB/RRRs_VM/RRRs_DATA/` (plain host
+files; browsable/backupable without the VM; survives system rebuilds by
+construction). Requires `virtiofsd` package (now in setup_host_Ubuntu.sh).
+build-vm.sh: `--filesystem type=mount,driver.type=virtiofs,...` +
+`--memorybacking source.type=memfd,access.mode=shared` (virt-install 4.1
+does NOT auto-add shared memory). Verified: guest-write → host-file
+round trip instant.
+
+**CasaOS v0.4.15 login shape**: JWT at `data.token.access_token` (nested,
+envelope `{"success":200,...}`) — NOT top-level `access_token`. Handled in
+`vm/get-casaos-token.sh` (hidden password prompt; username via
+`RRR_CASAOS_USER`, default `je`).
+
+**Host-local browser access**: packets to the host's own IP route via `lo`,
+so the hook's `oifname "virbr0"` output rules never matched them — UI was
+reachable only from OTHER LAN devices. Hook now DNATs `ip daddr $HOST_IP`
+traffic too, host IP auto-detected from the default-route interface
+(survives WiFi↔wired moves).
+
+**cloud-init seed fix**: the old last runcmd (`cloud-init status --wait`
+inside the final stage) deadlocks — status stays "running" forever (§7-era
+"cosmetic" issue, root-caused this time). Current seed writes
+`/root/PROVISION_DONE.txt` (df + date) and `check-vm.sh` reads it via sudo.
+
+**Verified end state**: cloud-init done; casaos/casaos-gateway/docker active;
+8 containers up (7 arrs + flaresolverr); host browser `:18000` → 200; SSH
+forward `:10022` banner OK; token flow OK; dry-run install 7×200 + real
+install accepted.
+
+Ubuntu teardown equivalent: same virsh lines, plus
+`sudo systemctl disable --now libvirtd` and `sudo apt-get purge
+libvirt-daemon-system qemu-kvm virtinst` (remove the drop-in override at
+`/etc/systemd/system/libvirtd.service.d/` too). Data survives in
+`RRRs_DATA/` — delete manually only if intended.
+
+## 2026-09-20 ailab: full service (Phase A complete)
+
+Everything from "Remaining to full service" done in one session. All state
+below is the live VM; keys in `vm/credentials.txt` are current.
+
+**qBittorrent** — temp creds via `sudo docker logs qbittorrent` (guest debian
+user is NOT in the docker group — every `docker` call needs sudo there).
+Password set to the `vm/credentials.txt` value via
+`POST /api/v2/app/setPreferences` (`json={"web_ui_password":...}`) and
+re-login-verified; also re-saved to `vm/.qbittorrent-pw` (0600). Default
+save path set via the same call (`json={"save_path":"/DATA/Downloads/torrents"}`).
+Gotcha rediscovered: fresh qBit config defaults to `/app/qBittorrent/downloads`;
+the container mounts the WHOLE `/DATA` at `/DATA`, so the save path is the
+guest path verbatim. API setPreferences survives the SIGTERM conf rewrite.
+
+**SABnzbd headless wizard** — `POST /wizard/one` (`lang=en`), then
+`POST /wizard/two` WITH the `ssl=0` field (server-side requires the key even
+when skipping the usenet server; first attempt without it silently re-rendered
+the form). Two extra steps beyond the wizard POSTs:
+1. `wizard_complete = 1` + `complete_dir=/downloads/usenet/complete` +
+   `incomplete_dir=/downloads/usenet/incomplete` written into
+   `/config/sabnzbd.ini` + restart (dir layout per §8b/NOTES 22).
+2. SAB 5.x STILL 303-redirects `/` → `/wizard/` while
+   `config.get_servers()` is empty (interface.py ~L455). Phase A has no
+   usenet server, so a disabled placeholder was appended:
+   `[servers]/[[placeholder]] host=none.invalid, enable=0`. Root now 200.
+Categories recreated via API (original VM had them; fresh /config lost them):
+`POST /api?mode=set_config&section=categories&name=<cat>&dir=/downloads/usenet/complete/<cat>`
+for prowlarr, radarr, tv-sonarr, readarr, lidarr. CherryPy gotcha: POST with
+no body → HTTP 411; `curl -d ''` supplies Content-Length.
+
+**collect-keys.sh fixes (fresh-build flow)** — three bugs vs the 2026 stack:
+- guest docker needs `sudo docker exec` (added at all 3 call sites)
+- ALL five *arrs keep their key in `/config/config.xml` `<ApiKey>` — the
+  `*.conf` JSON paths never existed in these images; everything uses xmlkey now
+- sshpass isn't installed on ailab: script now probes key auth first
+  (`ssh -o BatchMode=yes`), falls back to sshpass + VM password
+Fresh keys applied to `vm/wire-arrs.py` APPS/SAB_APIKEY and credentials.txt.
+
+**wire-arrs.py drift fixes (Prowlarr 2.3.5)** —
+- tags: API wants `label`, not `name` (400 "Label must not be empty")
+- FlareSolverr proxy schema: single full-URI `host` field
+  (`http://172.17.0.1:8191`), port/useSsl fields are gone
+- Limetorrents dropped from INDEXERS: definition targets `.fun` (dead,
+  connection refused), `.com` →301→ `.pro` →302→ `ww1.` parked page
+- sync command works as-is now; Readarr/Lidarr show 0 indexers — matches
+  the original build exactly (no public book/music trackers pass validation)
+
+**End-to-end test (§13/§8g replicated)** — Prowlarr API search (LinuxTracker,
+"debian") → smallest result (debian-mac-13.7.0-amd64-netinst.iso, 757 MB)
+→ `POST /api/v1/search` grab body `{guid, indexerId, downloadClientId: 1,
+downloadClient: "qBittorrent"}` → qBittorrent downloaded at ~38 MB/s to
+`/DATA/Downloads/torrents` (host: `RRRs_DATA/Downloads/torrents/`), 100%,
+seeding (stalledUP). First grab landed in the wrong dir (pre-save_path-fix);
+deleted with `deleteFiles=true` and re-grabbed. Search quirk: "debian netinst"
+(two tokens) returns 0 hits on LinuxTracker; single-token "debian" works.

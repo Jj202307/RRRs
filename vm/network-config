@@ -3,6 +3,7 @@ ethernets:
   main:
     match:
       name: "en*s*"
+    mtu: 1280
     addresses:
       - 192.168.122.50/24
     routes:
