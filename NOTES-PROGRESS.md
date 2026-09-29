@@ -444,3 +444,15 @@ snapshot (`recovery.jsonlz4` rewritten containing the URLs); `tabs` and
 `start` actions exit 0. Targets Ubuntu 24.04 (verified) + openSUSE Leap 15.6
 (standard .desktop/firefox mechanism; GNOME gets a `gio` trust flag, KDE
 launches via +x). UNTESTED: Leap 15.6 runtime.
+
+### git-crypt + qBittorrent ban (same evening)
+
+- `vm/{credentials.txt,.casaos-token,.qbittorrent-pw,wire-arrs.py}` now
+  git-crypt-encrypted (wire-arrs.py embeds API keys — included). Key exported
+  to `~/git-crypt-keys/RRRs.key` (NOT in git — back it up or fresh clones
+  can't read those files). HEAD shows ciphertext; old commits still plaintext
+  in history (scrub = separate decision). Fresh clones: `git-crypt unlock`.
+- qBittorrent "wrong password" was an IP ban: 5 failed WebUI logins → 403
+  "Your IP address has been banned…" for ~1 h. Documented creds were correct
+  all along (login verified Ok after clearing the ban). Ban clears on
+  container restart or timeout.

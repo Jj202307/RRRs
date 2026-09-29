@@ -1,0 +1,4 @@
+vm/credentials.txt filter=git-crypt diff=git-crypt
+vm/.casaos-token filter=git-crypt diff=git-crypt
+vm/.qbittorrent-pw filter=git-crypt diff=git-crypt
+vm/wire-arrs.py filter=git-crypt diff=git-crypt

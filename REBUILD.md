@@ -44,6 +44,10 @@ ICMP never reaches them).
 
 ### 0. Select the machine profile (new machines: create one first)
 
+Fresh clone: credential files are git-crypt-encrypted — unlock first with the
+repo key (kept OUT of git, e.g. `~/git-crypt-keys/RRRs.key`):
+`git-crypt unlock ~/git-crypt-keys/RRRs.key`
+
 ```bash
 bash vm/select-machine.sh status            # already selected on an existing checkout
 bash vm/select-machine.sh new <name>        # NEW host only: copy TEMPLATE, fill machine.env (NOTES.md there)
