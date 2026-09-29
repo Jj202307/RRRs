@@ -394,3 +394,53 @@ downloadClient: "qBittorrent"}` → qBittorrent downloaded at ~38 MB/s to
 seeding (stalledUP). First grab landed in the wrong dir (pre-save_path-fix);
 deleted with `deleteFiles=true` and re-grabbed. Search quirk: "debian netinst"
 (two tokens) returns 0 hits on LinuxTracker; single-token "debian" works.
+
+## 2026-09-29 — ailab: machine-profile refactor + Surfshark verification
+
+**Surfshark live-verified (tunnel up)** — client 3.13 (WireGuard `surfshark_wg` +
+`surfshark_ipv6`), policy routing `not from all fwmark 0x493e0 lookup 300000`
++ `suppress_prefixlength 0` on main: every unmarked packet — including the VM's
+NATed flows — enters the tunnel. Measured: host egress 185.9.16.102 ==
+guest egress 185.9.16.102 (identical exit); all 8 services HTTP 200 with the
+tunnel up (kill switch, whatever its state, does not cut forwarded VM traffic
+or LAN access). Host resolver flips to Surfshark-pushed resolvers
+(162.252.172.57, 149.154.159.92, 151.236.14.64) on connect; the guest's
+PRIMARY resolver is 192.168.122.1 → host dnsmasq → host resolver, so
+VPN on = guest uses Surfshark DNS, VPN off = 1.1.1.1. No leak path (both
+resolver routes ride the tunnel). Zero extra configuration required.
+
+**Machine-profile refactor** — repo restructured into per-machine SETS so a
+third machine is "select and go" (spec + matrix in MACHINES.md):
+- `machines/P71/` (set A, retired host, values as-built: openSUSE/enp0s31f6/
+  "Wired connection 1"/192.168.1.81/P71.local/mDNS OK/1500)
+- `machines/ailab/` (set B, live: Ubuntu/wlp71s0/Eagle6/192.168.1.66/IP-only
+  — mDNS poisoned by docker+calico bridges registering with avahi, `ailab.local`
+  resolves to 172.17.0.1 — /guest MTU 1280/DNS follows host chain for Surfshark)
+- `machines/TEMPLATE/` (set C scaffolding + value-derivation cheatsheet)
+- `vm/select-machine.sh {P71|ailab|new <name>|status}`: points `machines/current`
+  (gitignored symlink) at a set, syncs the set's `network-config` into `vm/`
+  (.backup kept), prints resolved values + sudo reminders
+- `vm/_machine.sh` (bash) / `vm/_rrrhost.py` (python): shared resolvers —
+  env `RRR_*` > set's machine.env > autodetect (default-route iface/IP, active
+  NM connection). current-urls.sh (now mDNS-aware), fix-host-dns.sh,
+  collect-keys.sh, wire-arrs.py, install-apps.py, get-casaos-token.sh all
+  consume them; build-vm.sh takes `RRR_DISKDIR` + prints the active set
+- functional `vm/network-config` = ailab variant (as-running: mtu 1280,
+  122.1-first DNS); P71 variant = 1.1.1.1-first (its poisoning history)
+- docs: HOWTO-USE URLs per machine + Surfshark section; REBUILD.md step 0;
+  TODO Phase B closed. Pre-edit copies of every touched file left as `*.backup`
+  (gitignored).
+
+### Desktop icon (one-click start + tabs)
+
+New: `vm/desktop-icon.sh` — installs `~/.local/bin/rrrs-vm-start` +
+`rrrs-media-vm.desktop` (Desktop + applications menu). Double-click = start VM
+if off → wait for :18000 (3 min cap) → open all 8 web UIs as Firefox tabs;
+menu actions "Start VM only" / "Open web UIs only". LAN IP resolved at click
+time via `_machine.sh` (follows machine set, no reinstall).
+Tested e2e on ailab (KDE Plasma X11, snap Firefox 156): icon cold-started the
+shut-off VM, all 8 ports 200 at t+33 s, tabs confirmed in Firefox's session
+snapshot (`recovery.jsonlz4` rewritten containing the URLs); `tabs` and
+`start` actions exit 0. Targets Ubuntu 24.04 (verified) + openSUSE Leap 15.6
+(standard .desktop/firefox mechanism; GNOME gets a `gio` trust flag, KDE
+launches via +x). UNTESTED: Leap 15.6 runtime.

@@ -11,8 +11,9 @@
 Run on the host: python3 vm/install-apps.py [--dry-run-only] [--app NAME]
 """
 import json, sys, os, urllib.request
-
-BASE = f"http://{__import__('os').environ.get('RRR_HOST', '192.168.1.66')}:18000/v2/app_management"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _rrrhost import rrr_host
+BASE = f"http://{rrr_host()}:18000/v2/app_management"
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN = open(os.path.join(HERE, ".casaos-token")).read().strip()
 

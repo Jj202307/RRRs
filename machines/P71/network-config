@@ -1,0 +1,17 @@
+# SET A network-config (P71) — wired host, clean 1500 path, direct resolvers first.
+# (P71 history: ISP poisoned DNS through the host dnsmasq chain — NOTES §8e — so the
+# guest pins public resolvers first here. On ailab the host chain is the PRIMARY instead.)
+version: 2
+ethernets:
+  main:
+    match:
+      name: "en*s*"
+    addresses:
+      - 192.168.122.50/24
+    routes:
+      - to: default
+        via: 192.168.122.1
+    nameservers:
+      addresses:
+        - 1.1.1.1
+        - 8.8.8.8

@@ -16,32 +16,34 @@
       virtiofs `/DATA` redesign (`RRRs_DATA/` host dir), live rule re-apply
       on `finish-host-setup.sh`, `get-casaos-token.sh` (v0.4.15 nested JWT)
 
-## Phase B: Dynamic host detection (remove remaining hardcoded values)
+## Phase B: Dynamic host detection (DONE 2026-09-29 — machine profile sets)
 
-Values now target **ailab** (192.168.1.66, wlp71s0, Eagle6). Remaining
-hardcodes that would need adapting on a *third* machine:
+Machine-specific values moved to `machines/<set>/` profile sets (P71 = A, ailab =
+B, TEMPLATE = C) — see MACHINES.md. Scripts resolve every value as
+env override > selected set > autodetect:
 
-### NIC detection (partially done)
-- [ ] `fix-host-dns.sh`: NM connection hardcoded to "Eagle6" → query NM for
-      the active internet-facing connection
-- [ ] `current-urls.sh`: interface hardcoded to wlp71s0 → detect default-route
-      interface (`ip -4 route show default`)
-- [x] Port-forward hook: host IP + interface auto-detected from default route
-- [x] `network-config`: `en*s*` wildcard — works everywhere; guest MTU 1280 set
-
-### Host IP detection (defaults updated, not dynamic)
+- [x] `fix-host-dns.sh`: NM connection from the profile, autodetect fallback
+      (active connection on the default-route iface) — no more "Eagle6" hardcode
+- [x] `current-urls.sh`: iface/IP from the profile, autodetect fallback
+      (`ip route show default`); mDNS advertised only when the profile allows
+      (ailab: docker bridges poison `.local` — IP only)
 - [x] `install-apps.py` / `wire-arrs.py` / `collect-keys.sh` /
-      `get-casaos-token.sh`: fallback IP updated to 192.168.1.66 (RRR_HOST
-      still overrides) — fallback remains a hardcode, detection approach:
-      `ip -4 route show default | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}'`
+      `get-casaos-token.sh`: shared `_rrrhost.py` — env `RRR_HOST` >
+      set's `M_LAN_IP_DEFAULT` > autodetect (default-route src IP)
+- [x] Port-forward hook: host IP + interface auto-detected from default route (was done)
+- [x] `network-config`: `en*s*` wildcard everywhere; guest MTU per set
+      (`M_GUEST_MTU` + set's network-config: ailab 1280, P71 default)
+- [x] `select-machine.sh new <name>` scaffolds set C on a third machine
+- [ ] Auto-inject the building host's `~/.ssh/id_ed25519.pub` into `vm/user-data`
+      during build (for now: append it by hand before `build-vm.sh`)
 
-### Libvirt model detection
-- [x] `setup_host_Ubuntu.sh` detects modular vs monolithic and acts per model
+## Phase C: candidates
 
-### SSH key in user-data
-- [x] Second key (je@ailab) appended; supports any number of keys
-- [ ] Auto-inject the building host's `~/.ssh/id_ed25519.pub` during build
-
-### DNS fix script
-- [ ] `fix-host-dns.sh` still needs the exact NM connection name; make it
-      query active connections with a default route
+- [x] One-click desktop icon — DONE 2026-09-29: `vm/desktop-icon.sh` (Ubuntu
+      24.04 verified e2e on ailab; Leap 15.6 same mechanism, untested runtime).
+      Starts the VM if off, opens all 8 web UIs as Firefox tabs. Docs:
+      HOWTO-USE.md "Desktop icon".
+- [ ] qBittorrent binding to the VPN interface only (so downloads stop when the
+      tunnel drops) — Surfshark verified to carry the VM 2026-09-29; binding is
+      a guest-side qBittorrent setting (Advanced → Network Interface) if wanted
+- [ ] Auto-start the VM on a Surfshark-connected schedule (systemd timer)

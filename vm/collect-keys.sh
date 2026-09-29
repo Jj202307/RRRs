@@ -7,7 +7,8 @@
 # SABnzbd first-boot wizard completed (see REBUILD.md).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-HOST="${RRR_HOST:-192.168.1.66}"
+. vm/_machine.sh
+HOST="${RRR_HOST:-$RRR_LAN_IP}"
 CREDS=vm/credentials.txt
 
 # Prefer SSH key auth (ailab flow: je@aillab key is in user-data);

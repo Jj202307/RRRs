@@ -1,9 +1,13 @@
 #!/bin/bash
 # Permanently set host DNS to 1.1.1.1 + 8.8.8.8 (bypasses ISP/router DNS).
-# Host uses NetworkManager, connection "Eagle6" on wlp71s0 (DHCP kept).
+# NetworkManager host. Connection name comes from the machine profile
+# (machines/current/machine.env) with autodetect fallback — no hardcode.
 # Run with sudo. Reversible: see bottom.
 set -euo pipefail
-CON="Eagle6"
+. "$(dirname "$0")/_machine.sh"
+CON="${RRR_NM_CONN:-}"
+[ -n "$CON" ] || { echo "ERROR: no NetworkManager connection found for iface $RRR_LAN_IF — set M_NM_CONN in machines/<set>/machine.env" >&2; exit 1; }
+echo "Pinning DNS on NM connection '$CON' ($RRR_LAN_IF) ..."
 
 nmcli con mod "$CON" ipv4.dns "1.1.1.1 8.8.8.8" ipv4.ignore-auto-dns yes
 nmcli con up "$CON"   # brief network blip while the connection re-applies

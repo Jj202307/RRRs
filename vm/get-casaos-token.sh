@@ -9,8 +9,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 exec python3 - <<'PY'
-import getpass, json, os, urllib.request
-host = os.environ.get("RRR_HOST", "192.168.1.66")
+import getpass, json, os, sys, urllib.request
+sys.path.insert(0, ".")  # script cd's to vm/ first
+from _rrrhost import rrr_host
+host = rrr_host()  # RRR_HOST env > machines/current/machine.env > autodetect
 user = os.environ.get("RRR_CASAOS_USER", "je")
 pw = getpass.getpass(f"CasaOS password for '{user}' @ {host}: ")
 body = json.dumps({"username": user, "password": pw}).encode()

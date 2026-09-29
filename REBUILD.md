@@ -25,10 +25,13 @@ describes daily use of the finished stack.
 - RAM: give the VM 8 GB / 4 vCPUs as in `vm/build-vm.sh` (or less; the stack
   idles around 1.5 GB but torrent-heavy use likes headroom).
 
-If the host IP is not `192.168.1.66` (current primary host `ailab`; the
-original openSUSE host was `192.168.1.81`), export `RRR_HOST=<ip>` for every
-script below (install-apps.py, wire-arrs.py, collect-keys.sh,
-get-casaos-token.sh).
+Machine-specific values (LAN IP, NIC, NM connection, URL host, guest MTU, DNS
+order) live in **machine profile sets** — `machines/P71` (set A, original host,
+192.168.1.81 wired), `machines/ailab` (set B, current host, 192.168.1.66 WiFi),
+`machines/TEMPLATE` (set C — derive + activate for any new host). See
+`MACHINES.md`. Selecting a set (`bash vm/select-machine.sh <set>`, step 0 below)
+removes the need for `RRR_HOST` exports: scripts resolve host IP as
+env `RRR_HOST` > the set's `M_LAN_IP_DEFAULT` > autodetect (default-route src).
 
 **Network MTU note:** the primary host's WiFi uplink has a path MTU of 1280
 (verified by DF-ping bisect). This is handled in two layers — guest NIC MTU
@@ -38,6 +41,14 @@ Without them, guests behind the NAT stall forever on large packets (PMTUD
 ICMP never reaches them).
 
 ## Steps
+
+### 0. Select the machine profile (new machines: create one first)
+
+```bash
+bash vm/select-machine.sh status            # already selected on an existing checkout
+bash vm/select-machine.sh new <name>        # NEW host only: copy TEMPLATE, fill machine.env (NOTES.md there)
+bash vm/select-machine.sh <P71|ailab|name>  # activate
+```
 
 ### 1. Base image (not in git — it's the 430 MB gitignored file)
 
@@ -213,6 +224,12 @@ book/music trackers pass validation — expected, NOTES §8f).
 Prowlarr UI (`:19696`) → Interactive Search (e.g. LinuxTracker, "debian
 netinst") → download icon → qBittorrent → confirm it lands in
 `/DATA/Downloads/torrents` (CasaOS Files, `:18000`). That's the §8g test.
+
+### Afterwards (optional): one-click desktop icon
+
+`bash vm/desktop-icon.sh` installs a "RRRs Media VM" desktop icon — double-click
+starts the VM if it's off and opens all 8 web UIs as Firefox tabs. Resolves the
+LAN IP from the active machine set at click time. Details: HOWTO-USE.md.
 
 ## Not reproducible from the repo (by design)
 

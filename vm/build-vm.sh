@@ -1,9 +1,13 @@
 #!/bin/bash
-# Build + launch casaos-vm (run as regular user AFTER setup-host.sh + re-login).
+# Build + launch casaos-vm (run as regular user AFTER setup-host + re-login).
+# Machine-profile aware: run vm/select-machine.sh <set> first; the seed picks up
+# that set's network-config (guest MTU / DNS order). DISKDIR via RRR_DISKDIR.
 set -euo pipefail
 cd "$(dirname "$0")"
+. ./_machine.sh
+echo "machine set: $MACHINE_SET   LAN: $RRR_LAN_IF $RRR_LAN_IP   guest MTU: ${M_GUEST_MTU:-(default 1500)}"
 
-DISKDIR="/home/je/NVMe4TB/RRRs_VM"
+DISKDIR="${RRR_DISKDIR:-/home/je/NVMe4TB/RRRs_VM}"
 mkdir -p "$DISKDIR"
 
 # Data lives OUTSIDE the VM via virtiofs: guest /DATA == host RRRs_DATA dir.
