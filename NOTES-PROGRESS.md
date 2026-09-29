@@ -456,3 +456,18 @@ launches via +x). UNTESTED: Leap 15.6 runtime.
   "Your IP address has been banned…" for ~1 h. Documented creds were correct
   all along (login verified Ok after clearing the ban). Ban clears on
   container restart or timeout.
+
+### History scrub (2026-09-29, same evening)
+- Rewrote history with git-filter-repo 31ebad4c8fb3 (~/.local/bin): inverted
+  vm/credentials.txt, vm/.casaos-token, vm/.qbittorrent-pw, vm/wire-arrs.py,
+  vm/casaos-login.json (found during post-scrub clone scan — was tracked
+  plaintext with the CasaOS admin password in ALL commits).
+- Force-pushed master twice; final tip 7a0ef43 (8 commits). Fresh-clone verified:
+  all 5 files GITCRYPT at tip, zero secret hits across all revs
+  (direct patterns + 26-char token sweep; only false-positive identifier hits).
+- Local backup of pre-scrub history: ~/git-crypt-backups/RRRs-pre-scrub-2026-09-29.bundle
+  (+ pre-scrub-worktree/ copies of the 5 files). Contains PLAINTEXT secrets —
+  local only; delete once rotation is done.
+- GitHub caveat: force-pushed-away commits can linger server-side as unreachable
+  objects; for a hard purge contact GitHub support or recreate the repo. Any
+  clone made before the scrub still has plaintext history. ROTATION STILL REQUIRED.
